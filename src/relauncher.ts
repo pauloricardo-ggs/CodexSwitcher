@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { windowsCommandInvocation } from "./executable.js";
+import { buildRelaunchInvocation } from "./relaunchInvocation.js";
 import type { RelaunchPayload } from "./types.js";
 
 function isProcessAlive(pid: number): boolean {
@@ -41,30 +41,20 @@ async function main(): Promise<void> {
   }
 
   // Let OS-level locks and the VS Code IPC endpoint settle before relaunching.
-  await delay(700);
+  // Windows generally takes longer to release the instance mutex.
+  await delay(process.platform === "win32" ? 2_000 : 700);
 
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
     CODEX_HOME: payload.codexHome,
   };
 
-  let invocation: { command: string; args: string[] };
-  if (process.platform === "win32" && payload.windowsCliPath) {
-    // This is the same bootstrap used by VS Code's code.cmd, without relying on
-    // cmd.exe quoting. The CLI removes ELECTRON_RUN_AS_NODE before it starts the
-    // GUI and also normalizes Windows URI arguments before passing them on.
-    environment.ELECTRON_RUN_AS_NODE = "1";
-    delete environment.VSCODE_DEV;
-    invocation = {
-      command: payload.appExecutable,
-      args: [payload.windowsCliPath, ...payload.launchArguments],
-    };
-  } else {
-    delete environment.ELECTRON_RUN_AS_NODE;
-    invocation = process.platform === "win32"
-      ? windowsCommandInvocation(payload.appExecutable, payload.launchArguments)
-      : { command: payload.appExecutable, args: payload.launchArguments };
-  }
+  // The helper itself runs with ELECTRON_RUN_AS_NODE, but the relaunched
+  // Code.exe must start in its normal GUI mode. Calling VS Code's internal
+  // cli.js bootstrap here is brittle and can leave Windows with no GUI process.
+  delete environment.ELECTRON_RUN_AS_NODE;
+  delete environment.VSCODE_DEV;
+  const invocation = buildRelaunchInvocation(payload);
   const child = spawn(invocation.command, invocation.args, {
     detached: true,
     env: environment,

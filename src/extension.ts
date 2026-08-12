@@ -5,7 +5,6 @@ import * as vscode from "vscode";
 import {
   resolveExecutable,
   resolveVsCodeLauncher,
-  resolveWindowsVsCodeCli,
   windowsCommandInvocation,
 } from "./executable.js";
 import { readCodexIdentity } from "./identity.js";
@@ -461,12 +460,6 @@ class ProfileController implements vscode.Disposable {
       }
       return;
     }
-    const windowsCliPath = await resolveWindowsVsCodeCli(
-      vscode.env.appRoot,
-      configuredLauncher,
-      appExecutable,
-    );
-
     const confirm = configuration.get<boolean>("confirmBeforeRestart", true);
     if (confirm) {
       const choice = await vscode.window.showWarningMessage(
@@ -481,9 +474,11 @@ class ProfileController implements vscode.Disposable {
 
     const payload: RelaunchPayload = {
       appExecutable,
-      windowsCliPath,
       codexHome: profile.codexHome,
-      parentPids: [process.pid, process.ppid].filter((pid, index, values) => pid > 0 && values.indexOf(pid) === index),
+      // Waiting for the extension host is sufficient. On Windows its parent can
+      // remain alive during shutdown and would prevent the helper from ever
+      // reaching the relaunch step.
+      parentPids: [process.pid],
       launchArguments: buildLaunchArguments(vscode.workspace.workspaceFile, vscode.workspace.workspaceFolders),
       waitTimeoutMs: RESTART_TIMEOUT_MS,
     };

@@ -53,6 +53,38 @@ test("detects the bundled VS Code CLI launcher from appRoot", async (t) => {
   assert.equal(await resolveVsCodeLauncher(root, "", {}, "linux"), launcher);
 });
 
+test("detects the standard packaged Linux launcher above resources/app", async (t) => {
+  const installRoot = await mkdtemp(path.join(tmpdir(), "codex-switcher-linux-app-"));
+  t.after(() => rm(installRoot, { recursive: true, force: true }));
+  const appRoot = path.join(installRoot, "resources", "app");
+  const bin = path.join(installRoot, "bin");
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(appRoot, { recursive: true });
+  await mkdir(bin);
+  await writeFile(path.join(appRoot, "product.json"), JSON.stringify({ applicationName: "code-test" }));
+  const launcher = path.join(bin, "code-test");
+  await writeFile(launcher, "#!/bin/sh\n");
+  await chmod(launcher, 0o700);
+
+  assert.equal(await resolveVsCodeLauncher(appRoot, "", {}, "linux"), launcher);
+});
+
+test("finds the Linux launcher on PATH when it is not bundled", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "codex-switcher-linux-path-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const appRoot = path.join(root, "app");
+  const pathBin = path.join(root, "path-bin");
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(appRoot);
+  await mkdir(pathBin);
+  await writeFile(path.join(appRoot, "product.json"), JSON.stringify({ applicationName: "code-test" }));
+  const launcher = path.join(pathBin, "code-test");
+  await writeFile(launcher, "#!/bin/sh\n");
+  await chmod(launcher, 0o700);
+
+  assert.equal(await resolveVsCodeLauncher(appRoot, "", { PATH: pathBin }, "linux"), launcher);
+});
+
 test("uses the running VS Code executable for Windows restarts", async (t) => {
   const installRoot = await mkdtemp(path.join(tmpdir(), "codex-switcher-win-app-"));
   t.after(() => rm(installRoot, { recursive: true, force: true }));

@@ -115,12 +115,22 @@ export async function resolveVsCodeLauncher(
       }
     }
 
-    const launcher = path.join(
-      appRoot,
-      "bin",
-      platform === "win32" ? `${applicationName}.cmd` : applicationName,
-    );
-    return await isExecutable(launcher, platform) ? launcher : undefined;
+    const launcherName = platform === "win32" ? `${applicationName}.cmd` : applicationName;
+    const bundledCandidates = [
+      path.join(appRoot, "bin", launcherName),
+      // Linux packages commonly use resources/app as appRoot while keeping the
+      // CLI at <install>/bin/code.
+      path.resolve(appRoot, "..", "..", "bin", launcherName),
+    ];
+    for (const launcher of bundledCandidates) {
+      if (await isExecutable(launcher, platform)) {
+        return launcher;
+      }
+    }
+
+    // Covers distro, Snap and user-local installations that expose the VS Code
+    // launcher through PATH instead of beside appRoot.
+    return resolveExecutable(applicationName, environment, platform);
   } catch {
     return undefined;
   }

@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import {
   resolveExecutable,
   resolveVsCodeLauncher,
+  resolveWindowsVsCodeCli,
   windowsCommandInvocation,
 } from "./executable.js";
 import { readCodexIdentity } from "./identity.js";
@@ -350,6 +351,11 @@ class ProfileController implements vscode.Disposable {
       }
       return;
     }
+    const windowsCliPath = await resolveWindowsVsCodeCli(
+      vscode.env.appRoot,
+      configuredLauncher,
+      appExecutable,
+    );
 
     const confirm = configuration.get<boolean>("confirmBeforeRestart", true);
     if (confirm) {
@@ -365,6 +371,7 @@ class ProfileController implements vscode.Disposable {
 
     const payload: RelaunchPayload = {
       appExecutable,
+      windowsCliPath,
       codexHome: profile.codexHome,
       parentPids: [process.pid, process.ppid].filter((pid, index, values) => pid > 0 && values.indexOf(pid) === index),
       launchArguments: buildLaunchArguments(vscode.workspace.workspaceFile, vscode.workspace.workspaceFolders),

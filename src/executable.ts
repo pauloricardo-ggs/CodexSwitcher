@@ -68,6 +68,7 @@ export async function resolveVsCodeLauncher(
   configured: string,
   environment: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
+  currentExecutable: string = process.execPath,
 ): Promise<string | undefined> {
   if (configured.trim().length > 0) {
     return resolveExecutable(configured, environment, platform);
@@ -76,12 +77,42 @@ export async function resolveVsCodeLauncher(
   try {
     const product = JSON.parse(await readFile(path.join(appRoot, "product.json"), "utf8")) as {
       applicationName?: unknown;
+      nameShort?: unknown;
     };
     const applicationName = typeof product.applicationName === "string"
       ? product.applicationName
       : undefined;
     if (!applicationName || !/^[a-zA-Z0-9._-]+$/.test(applicationName)) {
       return undefined;
+    }
+
+    if (platform === "win32") {
+      const installRoot = path.resolve(appRoot, "..", "..");
+      const resolvedCurrentExecutable = path.resolve(currentExecutable);
+      if (
+        path.extname(resolvedCurrentExecutable).toLowerCase() === ".exe"
+        && path.dirname(resolvedCurrentExecutable).toLowerCase() === installRoot.toLowerCase()
+        && await isExecutable(resolvedCurrentExecutable, platform)
+      ) {
+        return resolvedCurrentExecutable;
+      }
+
+      const nameShort = typeof product.nameShort === "string"
+        && /^[a-zA-Z0-9 ._-]+$/.test(product.nameShort)
+        ? product.nameShort
+        : undefined;
+      const executableNames = [
+        nameShort ? `${nameShort}.exe` : undefined,
+        `${applicationName}.exe`,
+        "Code.exe",
+      ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
+
+      for (const executableName of executableNames) {
+        const executable = path.join(installRoot, executableName);
+        if (await isExecutable(executable, platform)) {
+          return executable;
+        }
+      }
     }
 
     const launcher = path.join(
@@ -93,4 +124,22 @@ export async function resolveVsCodeLauncher(
   } catch {
     return undefined;
   }
+}
+
+export async function resolveWindowsVsCodeCli(
+  appRoot: string,
+  configuredLauncher: string,
+  appExecutable: string,
+  platform: NodeJS.Platform = process.platform,
+): Promise<string | undefined> {
+  if (
+    platform !== "win32"
+    || configuredLauncher.trim().length > 0
+    || path.extname(appExecutable).toLowerCase() !== ".exe"
+  ) {
+    return undefined;
+  }
+
+  const cliPath = path.join(appRoot, "out", "cli.js");
+  return await isExecutable(cliPath, platform) ? cliPath : undefined;
 }

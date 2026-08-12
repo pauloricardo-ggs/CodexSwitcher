@@ -15,6 +15,7 @@ export interface CodexIdentity {
 
 export interface RelaunchPayload {
   appExecutable: string;
+  windowsCliPath?: string;
   codexHome: string;
   parentPids: number[];
   launchArguments: string[];

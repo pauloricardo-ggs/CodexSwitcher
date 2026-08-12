@@ -47,11 +47,24 @@ async function main(): Promise<void> {
     ...process.env,
     CODEX_HOME: payload.codexHome,
   };
-  delete environment.ELECTRON_RUN_AS_NODE;
 
-  const invocation = process.platform === "win32"
-    ? windowsCommandInvocation(payload.appExecutable, payload.launchArguments)
-    : { command: payload.appExecutable, args: payload.launchArguments };
+  let invocation: { command: string; args: string[] };
+  if (process.platform === "win32" && payload.windowsCliPath) {
+    // This is the same bootstrap used by VS Code's code.cmd, without relying on
+    // cmd.exe quoting. The CLI removes ELECTRON_RUN_AS_NODE before it starts the
+    // GUI and also normalizes Windows URI arguments before passing them on.
+    environment.ELECTRON_RUN_AS_NODE = "1";
+    delete environment.VSCODE_DEV;
+    invocation = {
+      command: payload.appExecutable,
+      args: [payload.windowsCliPath, ...payload.launchArguments],
+    };
+  } else {
+    delete environment.ELECTRON_RUN_AS_NODE;
+    invocation = process.platform === "win32"
+      ? windowsCommandInvocation(payload.appExecutable, payload.launchArguments)
+      : { command: payload.appExecutable, args: payload.launchArguments };
+  }
   const child = spawn(invocation.command, invocation.args, {
     detached: true,
     env: environment,

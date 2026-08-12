@@ -1,0 +1,14 @@
+.github/**
+.vscode/**
+.gitignore
+src/**
+test/**
+scripts/**
+tsconfig.json
+*.vsix
+*.log
+node_modules/**
+!node_modules/.keep
+out/test/**
+out/**/*.map
+images/icon-source.png

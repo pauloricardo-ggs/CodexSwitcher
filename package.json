@@ -1,0 +1,102 @@
+{
+  "name": "codex-account-switcher",
+  "displayName": "Codex Switcher",
+  "description": "Switch isolated Codex accounts by relaunching VS Code with a different CODEX_HOME.",
+  "version": "0.0.0",
+  "publisher": "pauloricardo",
+  "icon": "images/icon.png",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "codex",
+    "openai",
+    "account",
+    "profile",
+    "switcher"
+  ],
+  "main": "./out/src/extension.js",
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:codexAccountSwitcher.addAccount",
+    "onCommand:codexAccountSwitcher.registerCurrent",
+    "onCommand:codexAccountSwitcher.switchAccount",
+    "onCommand:codexAccountSwitcher.removeProfile",
+    "onCommand:codexAccountSwitcher.refresh"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "codexAccountSwitcher.addAccount",
+        "title": "Codex Accounts: Add Account"
+      },
+      {
+        "command": "codexAccountSwitcher.registerCurrent",
+        "title": "Codex Accounts: Register Current Account"
+      },
+      {
+        "command": "codexAccountSwitcher.switchAccount",
+        "title": "Codex Accounts: Switch Account"
+      },
+      {
+        "command": "codexAccountSwitcher.removeProfile",
+        "title": "Codex Accounts: Forget Profile"
+      },
+      {
+        "command": "codexAccountSwitcher.refresh",
+        "title": "Codex Accounts: Refresh Indicator"
+      }
+    ],
+    "configuration": {
+      "title": "Codex Switcher",
+      "properties": {
+        "codexAccountSwitcher.codexExecutable": {
+          "type": "string",
+          "default": "codex",
+          "description": "Codex CLI executable used to authenticate a new profile. Use an absolute path if codex is not on VS Code's PATH."
+        },
+        "codexAccountSwitcher.vscodeExecutable": {
+          "type": "string",
+          "default": "",
+          "description": "Optional VS Code CLI launcher override used for restart. Leave empty to detect the launcher from VS Code's application directory."
+        },
+        "codexAccountSwitcher.useDeviceAuth": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run `codex login --device-auth` when adding an account."
+        },
+        "codexAccountSwitcher.confirmBeforeRestart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask for confirmation before quitting all VS Code windows and relaunching with the selected account."
+        },
+        "codexAccountSwitcher.showEmail": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the email found in local Codex token metadata in the status bar. When disabled, show the profile name."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "compile": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run compile && node --test out/test/*.test.js",
+    "package": "npm run clean && npm run test && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "npm run clean && npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "^5.7.2"
+  }
+}

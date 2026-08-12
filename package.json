@@ -2,7 +2,7 @@
   "name": "codex-account-switcher",
   "displayName": "Codex Switcher",
   "description": "Switch isolated Codex accounts by relaunching VS Code with a different CODEX_HOME.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "pauloricardo",
   "icon": "images/icon.png",
   "license": "MIT",

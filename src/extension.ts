@@ -21,10 +21,22 @@ import {
   validateProfileName,
 } from "./profileValidation.js";
 import { buildLaunchArguments } from "./relaunchPlan.js";
-import type { CodexIdentity, CodexProfile, RelaunchPayload } from "./types.js";
+import type {
+  CodexIdentity,
+  CodexProfile,
+  CodexUsage,
+  RelaunchPayload,
+} from "./types.js";
+import { presentUsage, queryCodexUsage } from "./usage.js";
 
 const PROFILES_KEY = "codexAccountSwitcher.profiles.v1";
 const RESTART_TIMEOUT_MS = 60_000;
+const USAGE_REFRESH_INTERVAL_MS = 60_000;
+
+interface ProfileQuickPickItem extends vscode.QuickPickItem {
+  profile?: CodexProfile;
+  action?: "add";
+}
 
 function normalized(filePath: string): string {
   const resolved = path.resolve(filePath);
@@ -58,6 +70,10 @@ class ProfileController implements vscode.Disposable {
     25,
   );
   private profiles: CodexProfile[];
+  private usage?: CodexUsage;
+  private usageCheckedAt?: Date;
+  private usageError?: string;
+  private refreshInFlight?: Promise<void>;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.profiles = context.globalState.get<CodexProfile[]>(PROFILES_KEY, []);
@@ -81,29 +97,100 @@ class ProfileController implements vscode.Disposable {
   }
 
   async refresh(): Promise<void> {
+    if (this.refreshInFlight) {
+      return this.refreshInFlight;
+    }
+    const refresh = this.performRefresh();
+    this.refreshInFlight = refresh;
+    try {
+      await refresh;
+    } finally {
+      if (this.refreshInFlight === refresh) {
+        this.refreshInFlight = undefined;
+      }
+    }
+  }
+
+  private async performRefresh(): Promise<void> {
     const home = currentCodexHome();
     const active = this.profiles.find((profile) => normalized(profile.codexHome) === normalized(home));
     const identity = await readCodexIdentity(authJsonPath(home));
-    const showEmail = vscode.workspace
-      .getConfiguration("codexAccountSwitcher")
-      .get<boolean>("showEmail", true);
+    const configuration = vscode.workspace.getConfiguration("codexAccountSwitcher");
+    const showEmail = configuration.get<boolean>("showEmail", true);
     const label = showEmail ? identity.email ?? active?.name : active?.name ?? identity.email;
+    await this.refreshUsage(home, identity, configuration);
+    const usagePresentation = this.usage ? presentUsage(this.usage) : undefined;
+    const isApiKey = identity.authMode?.toLowerCase().includes("api") ?? false;
+    const usageLabel = usagePresentation?.status ?? (isApiKey ? "$(key) API" : "$(pulse) n/a");
 
-    this.statusBar.text = `$(account) Codex: ${label ?? "not signed in"}`;
-    this.statusBar.tooltip = new vscode.MarkdownString(
-      [
-        `**Codex account:** ${identity.email ?? active?.name ?? "Not identified"}`,
-        "",
-        `**Profile:** ${active?.name ?? "Unregistered default"}`,
-        "",
-        `**CODEX_HOME:** \`${home}\``,
-        "",
-        "Click to switch account.",
-      ].join("\n"),
+    this.statusBar.text = `$(account) Codex: ${label ?? "not signed in"}${identity.email || identity.authMode ? ` · ${usageLabel}` : ""}`;
+    const tooltipLines = [
+      `**Codex account:** ${identity.email ?? active?.name ?? "Not identified"}`,
+      "",
+      `**Profile:** ${active?.name ?? "Unregistered default"}`,
+    ];
+    if (this.usage?.planType) {
+      tooltipLines.push("", `**Plan:** ${this.usage.planType.replaceAll("_", " ")}`);
+    }
+    if (usagePresentation && usagePresentation.details.length > 0) {
+      tooltipLines.push("", ...usagePresentation.details.flatMap((line) => [line, ""]).slice(0, -1));
+    } else if (isApiKey) {
+      tooltipLines.push("", "**Usage:** API-key billing; subscription windows are not available.");
+    } else if (identity.email || identity.authMode) {
+      tooltipLines.push("", `**Usage:** Unavailable${this.usageError ? ` — ${this.usageError}` : ""}`);
+    }
+    if (this.usageCheckedAt) {
+      tooltipLines.push("", `**Last checked:** ${this.usageCheckedAt.toLocaleString()}`);
+    }
+    tooltipLines.push(
+      "",
+      `**CODEX_HOME:** \`${home}\``,
+      "",
+      "Click to switch account or add a new one.",
     );
-    this.statusBar.backgroundColor = identity.email || identity.authMode
-      ? undefined
-      : new vscode.ThemeColor("statusBarItem.warningBackground");
+    this.statusBar.tooltip = new vscode.MarkdownString(
+      tooltipLines.join("\n"),
+    );
+    this.statusBar.backgroundColor = !identity.email && !identity.authMode
+      ? new vscode.ThemeColor("statusBarItem.warningBackground")
+      : this.usage?.rateLimitReachedType
+        ? new vscode.ThemeColor("statusBarItem.errorBackground")
+        : undefined;
+  }
+
+  private async refreshUsage(
+    home: string,
+    identity: CodexIdentity,
+    configuration: vscode.WorkspaceConfiguration,
+  ): Promise<void> {
+    this.usage = undefined;
+    this.usageError = undefined;
+    this.usageCheckedAt = undefined;
+    if (!identity.email && !identity.authMode) {
+      return;
+    }
+
+    const configuredExecutable = configuration.get<string>("codexExecutable", "codex");
+    const executable = await resolveExecutable(configuredExecutable);
+    if (!executable) {
+      this.usageError = "Codex CLI was not found.";
+      return;
+    }
+
+    let invocation: { command: string; args: string[] };
+    try {
+      invocation = process.platform === "win32"
+        ? windowsCommandInvocation(executable, ["app-server", "--stdio"])
+        : { command: executable, args: ["app-server", "--stdio"] };
+    } catch (error) {
+      this.usageError = String(error);
+      return;
+    }
+
+    const result = await queryCodexUsage(invocation.command, invocation.args, home);
+    this.usage = result.usage;
+    this.usageError = result.error ?? (result.usage ? undefined : "No limit data was returned.");
+    this.usageCheckedAt = new Date();
   }
 
   private async persist(): Promise<void> {
@@ -285,7 +372,10 @@ class ProfileController implements vscode.Disposable {
     return readCodexIdentity(authJsonPath(profile.codexHome));
   }
 
-  private async chooseProfile(placeHolder: string): Promise<CodexProfile | undefined> {
+  private async chooseProfile(
+    placeHolder: string,
+    includeAddAccount = false,
+  ): Promise<CodexProfile | undefined> {
     if (this.profiles.length === 0) {
       const action = await vscode.window.showInformationMessage(
         "No Codex account profiles are registered yet.",
@@ -301,7 +391,7 @@ class ProfileController implements vscode.Disposable {
     }
 
     const activeHome = normalized(currentCodexHome());
-    const items = await Promise.all(this.profiles.map(async (profile) => {
+    const profileItems: ProfileQuickPickItem[] = await Promise.all(this.profiles.map(async (profile) => {
       const identity = await this.identityFor(profile);
       const active = normalized(profile.codexHome) === activeHome;
       return {
@@ -312,11 +402,31 @@ class ProfileController implements vscode.Disposable {
       };
     }));
 
-    return (await vscode.window.showQuickPick(items, { placeHolder }))?.profile;
+    const items: ProfileQuickPickItem[] = [...profileItems];
+    if (includeAddAccount) {
+      items.push(
+        { label: "Accounts", kind: vscode.QuickPickItemKind.Separator },
+        {
+          label: "$(add) Add a new Codex account",
+          detail: "Create an isolated profile and authenticate it",
+          action: "add",
+        },
+      );
+    }
+
+    const selected = await vscode.window.showQuickPick(items, { placeHolder });
+    if (selected?.action === "add") {
+      await this.addAccount();
+      return undefined;
+    }
+    return selected?.profile;
   }
 
   private async switchAccount(): Promise<void> {
-    const selected = await this.chooseProfile("Select the Codex account for this VS Code instance");
+    const selected = await this.chooseProfile(
+      "Select the Codex account for this VS Code instance",
+      true,
+    );
     if (!selected) {
       return;
     }
@@ -422,7 +532,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(controller, ...controller.registerCommands());
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("codexAccountSwitcher.showEmail")) {
+      if (
+        event.affectsConfiguration("codexAccountSwitcher.showEmail")
+        || event.affectsConfiguration("codexAccountSwitcher.codexExecutable")
+      ) {
         void controller.refresh();
       }
     }),
@@ -441,6 +554,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     authWatcher.onDidChange(() => void controller.refresh()),
     authWatcher.onDidDelete(() => void controller.refresh()),
   );
+  const usageTimer = setInterval(() => void controller.refresh(), USAGE_REFRESH_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(usageTimer) });
   await controller.refresh();
 }
 

@@ -22,7 +22,10 @@ An extension cannot replace the environment of an already-running VS Code proces
 
 ## Features
 
-- Active-account indicator in the status bar.
+- Active-account and live usage indicator in the status bar.
+- Automatic display for rolling plan windows (hourly, daily, weekly, or other durations), workspace spend limits, and credit balances.
+- Detailed hover information with profile, plan, consumption, remaining allowance, and reset time.
+- An **Add a new Codex account** action at the bottom of the status-bar account picker.
 - Email detection from local Codex token metadata, with profile-name fallback.
 - One isolated `CODEX_HOME` per managed account.
 - Optional custom directory for each new account, with a predictable `~/.codex_<profile>` default.
@@ -44,10 +47,12 @@ An extension cannot replace the environment of an already-running VS Code proces
 2. Open the Command Palette.
 3. Run **Codex Accounts: Register Current Account** to keep the account you already use.
 4. Run **Codex Accounts: Add Account** and complete the login shown in the local output panel/browser.
-5. Click the Codex account indicator in the status bar or run **Codex Accounts: Switch Account**.
+5. Click the Codex account and usage indicator in the status bar. Choose an existing profile or use **Add a new Codex account** at the bottom of the list.
 6. Confirm the restart. All VS Code windows close normally and the selected workspace reopens.
 
 Registering the current account stores only its profile name and existing `CODEX_HOME` path. It does not copy its credentials.
+
+The usage indicator refreshes when VS Code starts, regains focus, authentication changes, or once per minute. Hover over it for the active profile, plan, all available limit windows, credit or workspace-budget information, reset times, and the last refresh time. API-key accounts are identified separately because subscription usage windows do not apply to them.
 
 ## Commands
 
@@ -107,6 +112,7 @@ The bundled `SECURITY.md` contains reporting and operational guidance.
 - VS Code can restore additional windows according to the user's `window.restoreWindows` setting. The workspace from which the switch was requested is passed explicitly to the relaunch.
 - Remote extension hosts do not own the switcher. The extension declares `extensionKind: ["ui"]`, and its login child process, account selection, and restart happen on the local machine.
 - The email indicator depends on the current local `auth.json` token schema. If no recognized email claim exists, the extension displays the profile name.
+- Usage information is read through the locally installed Codex CLI app-server. Older CLI versions that do not expose `account/rateLimits/read`, offline requests, or unavailable account data appear as `n/a` and do not prevent account switching.
 - This project relies on documented Codex configuration, but it is not an official OpenAI account switcher.
 
 ## Development
@@ -154,10 +160,11 @@ After the workflow finishes, download the `.vsix` file from the GitHub Release a
 
 ## Architecture
 
-The extension contains five small layers:
+The extension contains six small layers:
 
 - `extension.ts`: VS Code UI and command orchestration.
 - `identity.ts`: defensive parsing of local display metadata.
+- `usage.ts`: defensive Codex app-server usage parsing and presentation.
 - `profileFiles.ts`: isolated profile setup.
 - `relaunchPlan.ts`: workspace relaunch argument construction.
 - `relauncher.ts`: detached process wait and restart.

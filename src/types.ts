@@ -13,6 +13,36 @@ export interface CodexIdentity {
   authMode?: string;
 }
 
+export interface CodexUsageWindow {
+  usedPercent: number;
+  windowDurationMins?: number;
+  resetsAt?: number;
+}
+
+export interface CodexCredits {
+  balance?: string;
+  hasCredits: boolean;
+  unlimited: boolean;
+}
+
+export interface CodexSpendLimit {
+  limit: string;
+  used: string;
+  remainingPercent: number;
+  resetsAt: number;
+}
+
+export interface CodexUsage {
+  limitId?: string;
+  limitName?: string;
+  planType?: string;
+  primary?: CodexUsageWindow;
+  secondary?: CodexUsageWindow;
+  credits?: CodexCredits;
+  individualLimit?: CodexSpendLimit;
+  rateLimitReachedType?: string;
+}
+
 export interface RelaunchPayload {
   appExecutable: string;
   windowsCliPath?: string;
